@@ -1,0 +1,24 @@
+{
+  "name": "no-normalize",
+  "version": "1.0.0",
+  "description": "Remove YouTube audio normalization.",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "test:browser": "bun tests/browser-audio.ts",
+    "dev": "extension dev",
+    "build": "extension build",
+    "preview": "extension preview",
+    "start": "extension start"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "extension": "latest",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,150 @@
+name: Build and release extension
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, matching package.json and manifest.json (e.g. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      zip_name: ${{ steps.metadata.outputs.zip_name }}
+      crx_name: ${{ steps.metadata.outputs.crx_name }}
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+
+      - name: Validate release version
+        id: metadata
+        run: bun scripts/release.ts metadata
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bunx tsc --noEmit
+
+      - name: Run regression tests
+        run: bun test
+
+      - name: Build and package ZIP
+        env:
+          BASE_NAME: ${{ steps.metadata.outputs.base_name }}
+        run: bun run build -- --browser=chromium --zip --zip-filename="$BASE_NAME" --zip-dir=release
+
+      - name: Sign and package CRX3
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+          CRX_NAME: ${{ steps.metadata.outputs.crx_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$CRX_PRIVATE_KEY" ]]; then
+            echo "::error::Set the CRX_PRIVATE_KEY Actions secret to your RSA private key in PEM format."
+            exit 1
+          fi
+
+          key_path="$(mktemp "$RUNNER_TEMP/no-normalize-key.XXXXXX")"
+          trap 'rm -f -- "$key_path"' EXIT
+          chmod 600 "$key_path"
+          printf '%s\n' "$CRX_PRIVATE_KEY" > "$key_path"
+          unset CRX_PRIVATE_KEY
+          openssl rsa -in "$key_path" -passin pass: -check -noout > /dev/null
+
+          chrome_bin="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)"
+          "$chrome_bin" --headless=new --no-sandbox --disable-gpu --no-message-box \
+            --user-data-dir="$RUNNER_TEMP/no-normalize-pack-profile" \
+            --pack-extension="$GITHUB_WORKSPACE/dist/chromium" \
+            --pack-extension-key="$key_path"
+
+          test -s dist/chromium.crx
+          mv dist/chromium.crx "release/$CRX_NAME"
+
+      - name: Validate packages and generate checksums
+        env:
+          ZIP_NAME: ${{ steps.metadata.outputs.zip_name }}
+        run: |
+          unzip -t "release/$ZIP_NAME"
+          bun scripts/release.ts checksums
+
+      - name: Save release artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension-release-${{ github.run_id }}
+          path: |
+            release/${{ steps.metadata.outputs.zip_name }}
+            release/${{ steps.metadata.outputs.crx_name }}
+            release/MD5SUMS
+            release/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: extension-release-${{ github.run_id }}
+          path: release
+
+      - name: Verify artifact checksums
+        working-directory: release
+        run: |
+          md5sum --check MD5SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Create release or update its assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          ZIP_NAME: ${{ needs.build.outputs.zip_name }}
+          CRX_NAME: ${{ needs.build.outputs.crx_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=("release/$ZIP_NAME" "release/$CRX_NAME" release/MD5SUMS release/SHA256SUMS)
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GH_REPO" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" --repo "$GH_REPO" \
+              --verify-tag --title "$RELEASE_TAG" --generate-notes
+          fi

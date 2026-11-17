@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/chrome-manifest.json",
+  "manifest_version": 3,
+  "name": "No Normalize",
+  "version": "1.0.0",
+  "description": "Remove YouTube audio normalization and toggle anti-clipping",
+  "icons": {
+    "16": "images/icon-16.png",
+    "48": "images/icon-48.png",
+    "128": "images/icon-128.png"
+  },
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["*://*.youtube.com/*"],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/limiter-worklet.js"],
+      "matches": ["*://*.youtube.com/*"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "images/icon-16.png",
+      "48": "images/icon-48.png"
+    },
+    "default_title": "No Normalize"
+  },
+  "background": {
+    "chromium:service_worker": "background.ts",
+    "firefox:scripts": ["background.ts"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/scripts.ts"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/bridge.ts"],
+      "run_at": "document_idle"
+    }
+  ]
+}

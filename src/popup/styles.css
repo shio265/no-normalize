@@ -1,0 +1,233 @@
+/* === Ableton-inspired flat UI === */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Ableton palette */
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #2a2a2a;
+  --bg-tertiary: #333333;
+  --surface: #3c3c3c;
+  --text-primary: #d5d5d5;
+  --text-secondary: #8a8a8a;
+  --text-dim: #666666;
+  --accent: #ff764d;
+  --accent-dim: #cc5e3d;
+  --green: #1db954;
+  --green-dim: #178a3f;
+  --red: #e54d4d;
+  --yellow: #d4a843;
+  --border: #444444;
+  --divider: #3a3a3a;
+}
+
+body {
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-width: 280px;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.popup {
+  padding: 0;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+}
+
+.version {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+/* Sections */
+.section {
+  padding: 10px 12px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: var(--text-secondary);
+}
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 0 12px;
+}
+
+/* Control rows */
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+}
+
+.label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+}
+
+/* Toggle button — Ableton style */
+.toggle {
+  min-width: 42px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.1s;
+  outline: none;
+  padding: 0 8px;
+}
+
+.toggle.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.toggle.off {
+  background: var(--surface);
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
+.toggle:hover:not(.disabled) {
+  filter: brightness(1.15);
+}
+
+.toggle:active:not(.disabled) {
+  filter: brightness(0.9);
+}
+
+.toggle.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Stats grid */
+.stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+}
+
+.stat-label {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.stat-value.highlight {
+  color: var(--yellow);
+}
+
+/* Gain meter */
+.meter-section {
+  margin-top: 8px;
+}
+
+.meter-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.meter-label span {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.meter-value {
+  font-weight: 600;
+  color: var(--text-primary) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  background: var(--text-dim);
+  border-radius: 1px;
+  transition: width 0.3s ease, background 0.15s;
+}
+
+.meter-fill.active {
+  background: var(--accent);
+}
+
+/* Inactive state */
+.popup.inactive .section:first-of-type {
+  opacity: 0.7;
+}
