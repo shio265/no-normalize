@@ -1,18 +1,28 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { AudioStats } from "../content/normalization";
 
 interface ExtensionState {
   enabled: boolean;
   antiClipping: boolean;
+  preAmpEnabled: boolean;
+  preAmpGainDb: number;
 }
+
+const PREAMP_MIN = -12;
+const PREAMP_MAX = 12;
+const PREAMP_STEP = 0.5;
 
 export function Popup() {
   const [state, setState] = useState<ExtensionState>({
     enabled: true,
     antiClipping: true,
+    preAmpEnabled: false,
+    preAmpGainDb: 0,
   });
   const [stats, setStats] = useState<AudioStats | null>(null);
   const [connected, setConnected] = useState(false);
+  // Debounce slider updates to avoid flooding messages
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load state from storage
   useEffect(() => {
@@ -45,16 +55,25 @@ export function Popup() {
   }, []);
 
   const updateState = useCallback(
-    (partial: Partial<ExtensionState>) => {
+    (partial: Partial<ExtensionState>, immediate = true) => {
       const newState = { ...state, ...partial };
       setState(newState);
-      chrome.runtime.sendMessage({ type: "NN_SET_STATE", state: newState });
+      if (immediate) {
+        chrome.runtime.sendMessage({ type: "NN_SET_STATE", state: newState });
+      } else {
+        // Debounced update for slider
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => {
+          chrome.runtime.sendMessage({ type: "NN_SET_STATE", state: newState });
+        }, 80);
+      }
     },
     [state]
   );
 
   const isActive = state.enabled;
   const gain = state.enabled && stats ? (stats.appliedGain ?? 1) : 1;
+  const preAmpLinear = state.preAmpEnabled ? Math.pow(10, state.preAmpGainDb / 20) : 1;
 
   return (
     <div className={`popup ${isActive ? "active" : "inactive"}`}>
@@ -94,6 +113,61 @@ export function Popup() {
       {/* Divider */}
       <div className="divider" />
 
+      {/* Pre-Amp Section */}
+      <div className="section">
+        <div className="control-row">
+          <span className="label">PRE-AMP</span>
+          <button
+            title="Apply additional gain before the limiter"
+            className={`toggle ${state.preAmpEnabled ? "on" : "off"} ${!state.enabled ? "disabled" : ""}`}
+            onClick={() => state.enabled && updateState({ preAmpEnabled: !state.preAmpEnabled })}
+            disabled={!state.enabled}
+          >
+            {state.preAmpEnabled ? "ON" : "OFF"}
+          </button>
+        </div>
+
+        {state.preAmpEnabled && state.enabled && (
+          <div className="preamp-control">
+            <div className="slider-row">
+              <span className="slider-label">GAIN</span>
+              <div className="slider-wrapper">
+                <input
+                  type="range"
+                  className="slider"
+                  min={PREAMP_MIN}
+                  max={PREAMP_MAX}
+                  step={PREAMP_STEP}
+                  value={state.preAmpGainDb}
+                  onChange={(e) =>
+                    updateState({ preAmpGainDb: Number(e.target.value) }, false)
+                  }
+                />
+                <div className="slider-ticks">
+                  <span>−12</span>
+                  <span>0</span>
+                  <span>+12</span>
+                </div>
+              </div>
+              <span
+                className={`slider-value ${state.preAmpGainDb !== 0 ? "highlight" : ""}`}
+                onClick={() => updateState({ preAmpGainDb: 0 })}
+                title="Click to reset to 0 dB"
+              >
+                {state.preAmpGainDb > 0 ? "+" : ""}{state.preAmpGainDb.toFixed(1)} dB
+              </span>
+            </div>
+            <div className="preamp-info">
+              <span className="info-label">LINEAR</span>
+              <span className="info-value">{preAmpLinear.toFixed(3)}x</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="divider" />
+
       {/* Stats */}
       <div className="section">
         <div className="section-header">
@@ -122,6 +196,13 @@ export function Popup() {
             <StatRow
               label="Limit reduction"
               value={`${(stats.limiterReductionDb ?? 0) > 0 ? "−" : ""}${(stats.limiterReductionDb ?? 0).toFixed(1)} dB`}
+            />
+          )}
+          {state.enabled && state.preAmpEnabled && (
+            <StatRow
+              label="Pre-amp"
+              value={`${state.preAmpGainDb > 0 ? "+" : ""}${state.preAmpGainDb.toFixed(1)} dB`}
+              highlight={state.preAmpGainDb !== 0}
             />
           )}
           {stats?.audioError && <StatRow label="Audio error" value="SEE DETAILS" title={stats.audioError} />}

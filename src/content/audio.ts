@@ -1,10 +1,13 @@
 interface AudioGraph {
   gain: GainNode;
+  preAmpGain: GainNode;
   limiter: AudioWorkletNode | null;
   loading: boolean;
   correction: number;
+  preAmpDb: number;
   enabled: boolean;
   antiClipping: boolean;
+  preAmpEnabled: boolean;
   reductionDb: number;
   peakDb: number | null;
 }
@@ -29,6 +32,7 @@ export class AudioEngine {
     const limiterActive = !!this.activeGraph?.limiter && !!this.activeGraph.enabled && !!this.activeGraph.antiClipping;
     return {
       appliedGain: this.activeGraph?.gain.gain.value ?? 1,
+      preAmpAppliedGain: this.activeGraph?.preAmpGain.gain.value ?? 1,
       limiterActive,
       limiterReductionDb: limiterActive ? this.activeGraph!.reductionDb : 0,
       outputPeakDb: limiterActive ? this.activeGraph!.peakDb : null,
@@ -43,20 +47,32 @@ export class AudioEngine {
     }
   }
 
-  apply(video: HTMLVideoElement, correction: number, antiClipping: boolean) {
+  apply(video: HTMLVideoElement, correction: number, antiClipping: boolean, preAmpEnabled: boolean, preAmpDb: number) {
     if (this.disposed) return;
     if (!Number.isFinite(correction) || correction < 1) correction = 1;
+    if (!Number.isFinite(preAmpDb)) preAmpDb = 0;
+    // Clamp pre-amp to safe range
+    preAmpDb = Math.max(-24, Math.min(24, preAmpDb));
+
     let graph = this.graphs.get(video);
     if (this.activeGraph && this.activeGraph !== graph) this.reset();
     if (!graph) {
-      if (correction === 1 && !antiClipping) return;
+      if (correction === 1 && !antiClipping && (!preAmpEnabled || preAmpDb === 0)) return;
       try {
         this.context ??= new AudioContext();
         const gain = this.context.createGain();
+        const preAmpGain = this.context.createGain();
         const source = this.context.createMediaElementSource(video);
+        // Chain: source → gain (correction) → preAmpGain → destination
         source.connect(gain);
-        gain.connect(this.context.destination);
-        graph = { gain, limiter: null, loading: false, correction: 1, enabled: true, antiClipping, reductionDb: 0, peakDb: null };
+        gain.connect(preAmpGain);
+        preAmpGain.connect(this.context.destination);
+        graph = {
+          gain, preAmpGain, limiter: null, loading: false,
+          correction: 1, preAmpDb: 0,
+          enabled: true, antiClipping, preAmpEnabled: false,
+          reductionDb: 0, peakDb: null,
+        };
         this.graphs.set(video, graph);
         this.allGraphs.add(graph);
       } catch {
@@ -66,8 +82,10 @@ export class AudioEngine {
     }
     this.activeGraph = graph;
     graph.correction = correction;
+    graph.preAmpDb = preAmpDb;
     graph.enabled = true;
     graph.antiClipping = antiClipping;
+    graph.preAmpEnabled = preAmpEnabled;
     this.update(graph);
     // Warm the bypassed limiter too, so toggling anti-clip ON doesn't need to
     // drop correction to unity just to start loading its module.
@@ -105,8 +123,14 @@ export class AudioEngine {
     const limiting = graph.enabled && graph.antiClipping;
     // Fail closed: don't boost while protection is loading or unavailable.
     const gain = graph.enabled && (!limiting || graph.limiter) ? graph.correction : 1;
+    // Pre-amp: convert dB to linear gain
+    const preAmpLinear = graph.enabled && graph.preAmpEnabled
+      ? Math.pow(10, graph.preAmpDb / 20)
+      : 1;
+
     graph.limiter?.parameters.get("enabled")?.setValueAtTime(limiting ? 1 : 0, this.context.currentTime);
     graph.gain.gain.setValueAtTime(gain, this.context.currentTime);
+    graph.preAmpGain.gain.setValueAtTime(preAmpLinear, this.context.currentTime);
   }
 
   private async loadLimiter(graph: AudioGraph) {
@@ -127,9 +151,12 @@ export class AudioEngine {
         if (peakDb === null || (Number.isFinite(peakDb) && peakDb <= 0)) graph.peakDb = peakDb;
       };
       limiter.parameters.get("enabled")?.setValueAtTime(graph.enabled && graph.antiClipping ? 1 : 0, this.context.currentTime);
+
+      // Insert limiter between preAmpGain and destination:
+      // gain → preAmpGain → limiter → destination
+      graph.preAmpGain.disconnect();
+      graph.preAmpGain.connect(limiter);
       limiter.connect(this.context.destination);
-      graph.gain.disconnect();
-      graph.gain.connect(limiter);
       graph.limiter = limiter;
       // Re-read current state; the user may have toggled OFF during loading.
       this.update(graph);

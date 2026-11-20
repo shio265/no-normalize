@@ -1,6 +1,6 @@
 {
   "name": "no-normalize",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Remove YouTube audio normalization.",
   "private": true,
   "scripts": {

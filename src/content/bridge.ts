@@ -5,10 +5,12 @@ import type { AudioStats } from "./normalization";
 interface ExtensionState {
   enabled: boolean;
   antiClipping: boolean;
+  preAmpEnabled: boolean;
+  preAmpGainDb: number;
 }
 
 const audio = new AudioEngine();
-const state: ExtensionState = { enabled: true, antiClipping: true };
+const state: ExtensionState = { enabled: true, antiClipping: true, preAmpEnabled: false, preAmpGainDb: 0 };
 let initialized = false;
 let stopped = false;
 let stateChanged = false;
@@ -57,6 +59,10 @@ function respond(callback: (value: unknown) => void, value: unknown) {
 function updateState(value: Partial<ExtensionState> | undefined) {
   if (typeof value?.enabled === "boolean") state.enabled = value.enabled;
   if (typeof value?.antiClipping === "boolean") state.antiClipping = value.antiClipping;
+  if (typeof value?.preAmpEnabled === "boolean") state.preAmpEnabled = value.preAmpEnabled;
+  if (typeof value?.preAmpGainDb === "number" && Number.isFinite(value.preAmpGainDb)) {
+    state.preAmpGainDb = value.preAmpGainDb;
+  }
 }
 
 function validateStats(value: unknown): AudioStats | null {
@@ -77,7 +83,7 @@ function validateStats(value: unknown): AudioStats | null {
 function refreshAudio() {
   const video = document.querySelector<HTMLVideoElement>("video.html5-main-video") ?? document.querySelector("video");
   if (initialized && state.enabled && playerStats && video) {
-    audio.apply(video, playerStats.correctionGain, state.antiClipping);
+    audio.apply(video, playerStats.correctionGain, state.antiClipping, state.preAmpEnabled, state.preAmpGainDb);
   } else {
     audio.reset();
   }

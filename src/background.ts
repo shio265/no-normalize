@@ -3,11 +3,15 @@
 interface ExtensionState {
   enabled: boolean;
   antiClipping: boolean;
+  preAmpEnabled: boolean;
+  preAmpGainDb: number;
 }
 
 const DEFAULT_STATE: ExtensionState = {
   enabled: true,
   antiClipping: true,
+  preAmpEnabled: false,
+  preAmpGainDb: 0,
 };
 
 // Initialize state on install
@@ -15,6 +19,19 @@ chrome.runtime.onInstalled.addListener(async () => {
   const data = await chrome.storage.local.get("state");
   if (!data.state) {
     await chrome.storage.local.set({ state: DEFAULT_STATE });
+  } else {
+    // Migrate: add preAmp fields if missing
+    const existing = data.state as Partial<ExtensionState>;
+    if (existing.preAmpEnabled === undefined || existing.preAmpGainDb === undefined) {
+      await chrome.storage.local.set({
+        state: {
+          ...DEFAULT_STATE,
+          ...existing,
+          preAmpEnabled: existing.preAmpEnabled ?? DEFAULT_STATE.preAmpEnabled,
+          preAmpGainDb: existing.preAmpGainDb ?? DEFAULT_STATE.preAmpGainDb,
+        },
+      });
+    }
   }
 });
 
@@ -22,7 +39,8 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "NN_GET_STATE") {
     chrome.storage.local.get("state").then((data) => {
-      sendResponse({ state: data.state ?? DEFAULT_STATE });
+      const state = { ...DEFAULT_STATE, ...(data.state ?? {}) };
+      sendResponse({ state });
     });
     return true;
   }

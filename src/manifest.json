@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/chrome-manifest.json",
   "manifest_version": 3,
   "name": "No Normalize",
-  "version": "1.0.0",
-  "description": "Remove YouTube audio normalization and toggle anti-clipping",
+  "version": "1.0.1",
+  "description": "Remove YouTube audio normalization.",
   "icons": {
     "16": "images/icon-16.png",
     "48": "images/icon-48.png",
