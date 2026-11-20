@@ -32,7 +32,8 @@ export class AudioEngine {
     const limiterActive = !!this.activeGraph?.limiter && !!this.activeGraph.enabled && !!this.activeGraph.antiClipping;
     return {
       appliedGain: this.activeGraph?.gain.gain.value ?? 1,
-      preAmpAppliedGain: this.activeGraph?.preAmpGain.gain.value ?? 1,
+      preAmpAppliedGainDb: this.activeGraph?.preAmpEnabled
+        ? (this.activeGraph.preAmpDb ?? 0) : 0,
       limiterActive,
       limiterReductionDb: limiterActive ? this.activeGraph!.reductionDb : 0,
       outputPeakDb: limiterActive ? this.activeGraph!.peakDb : null,
@@ -47,7 +48,7 @@ export class AudioEngine {
     }
   }
 
-  apply(video: HTMLVideoElement, correction: number, antiClipping: boolean, preAmpEnabled: boolean, preAmpDb: number) {
+  apply(video: HTMLVideoElement, correction: number, antiClipping: boolean, preAmpEnabled = false, preAmpDb = 0) {
     if (this.disposed) return;
     if (!Number.isFinite(correction) || correction < 1) correction = 1;
     if (!Number.isFinite(preAmpDb)) preAmpDb = 0;
@@ -129,8 +130,8 @@ export class AudioEngine {
       : 1;
 
     graph.limiter?.parameters.get("enabled")?.setValueAtTime(limiting ? 1 : 0, this.context.currentTime);
-    graph.gain.gain.setValueAtTime(gain, this.context.currentTime);
     graph.preAmpGain.gain.setValueAtTime(preAmpLinear, this.context.currentTime);
+    graph.gain.gain.setValueAtTime(gain, this.context.currentTime);
   }
 
   private async loadLimiter(graph: AudioGraph) {

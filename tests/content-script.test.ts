@@ -164,7 +164,7 @@ test("page messages cannot change extension toggles, worklet URL or processing s
   await flush();
   expect(app.updates.at(-1).stats).toBeNull();
   const response = await app.stats();
-  expect(response.state).toEqual({ enabled: true, antiClipping: true });
+  expect(response.state).toEqual({ enabled: true, antiClipping: true, preAmpEnabled: false, preAmpGainDb: 0 });
   expect(response.stats.appliedGain).toBeCloseTo(50 / 30);
   expect(app.moduleUrls).toEqual(["chrome-extension://test/content/limiter-worklet.js"]);
 });
