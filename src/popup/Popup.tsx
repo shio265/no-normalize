@@ -10,7 +10,11 @@ interface ExtensionState {
 
 const PREAMP_MIN = -12;
 const PREAMP_MAX = 12;
-const PREAMP_STEP = 0.5;
+const PREAMP_SCROLL_STEP = 0.05;
+
+function clampPreamp(v: number) {
+  return Math.round(Math.max(PREAMP_MIN, Math.min(PREAMP_MAX, v)) * 100) / 100;
+}
 
 export function Popup() {
   const [state, setState] = useState<ExtensionState>({
@@ -21,8 +25,15 @@ export function Popup() {
   });
   const [stats, setStats] = useState<AudioStats | null>(null);
   const [connected, setConnected] = useState(false);
-  // Debounce slider updates to avoid flooding messages
+  const [editingPreamp, setEditingPreamp] = useState(false);
+  const [preampDraft, setPreampDraft] = useState("");
+  const preampInputRef = useRef<HTMLInputElement>(null);
+  const preampBoxRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const editingRef = useRef(editingPreamp);
+  editingRef.current = editingPreamp;
 
   // Load state from storage
   useEffect(() => {
@@ -54,26 +65,77 @@ export function Popup() {
     return () => clearInterval(interval);
   }, []);
 
+  const sendState = useCallback((newState: ExtensionState) => {
+    chrome.runtime.sendMessage({ type: "NN_SET_STATE", state: newState });
+  }, []);
+
   const updateState = useCallback(
     (partial: Partial<ExtensionState>, immediate = true) => {
-      const newState = { ...state, ...partial };
-      setState(newState);
-      if (immediate) {
-        chrome.runtime.sendMessage({ type: "NN_SET_STATE", state: newState });
-      } else {
-        // Debounced update for slider
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => {
-          chrome.runtime.sendMessage({ type: "NN_SET_STATE", state: newState });
-        }, 80);
-      }
+      setState((prev) => {
+        const newState = { ...prev, ...partial };
+        newState.preAmpEnabled = newState.preAmpGainDb !== 0;
+        if (immediate) {
+          sendState(newState);
+        } else {
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current = setTimeout(() => sendState(newState), 80);
+        }
+        return newState;
+      });
     },
-    [state]
+    [sendState]
   );
+
+  useEffect(() => {
+    const el = preampBoxRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editingRef.current) return;
+      const prev = stateRef.current;
+      if (!prev.enabled) return;
+      const delta = e.deltaY < 0 ? PREAMP_SCROLL_STEP : -PREAMP_SCROLL_STEP;
+      const newVal = clampPreamp(prev.preAmpGainDb + delta);
+      const newState: ExtensionState = {
+        ...prev,
+        preAmpGainDb: newVal,
+        preAmpEnabled: newVal !== 0,
+      };
+      stateRef.current = newState;
+      setState(newState);
+      sendState(newState);
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [sendState]);
+
+  const commitPreamp = () => {
+    editingRef.current = false;
+    setEditingPreamp(false);
+    const parsed = parseFloat(preampDraft.trim().replace(/,/g, "."));
+    if (Number.isFinite(parsed)) {
+      updateState({ preAmpGainDb: clampPreamp(parsed) });
+    }
+  };
+
+  const cancelEditing = () => {
+    editingRef.current = false;
+    setEditingPreamp(false);
+  };
+
+  const startEditing = () => {
+    if (!state.enabled) return;
+    editingRef.current = true;
+    setPreampDraft(state.preAmpGainDb.toFixed(2));
+    setEditingPreamp(true);
+    requestAnimationFrame(() => preampInputRef.current?.select());
+  };
 
   const isActive = state.enabled;
   const gain = state.enabled && stats ? (stats.appliedGain ?? 1) : 1;
-  const preAmpLinear = state.preAmpEnabled ? Math.pow(10, state.preAmpGainDb / 20) : 1;
 
   return (
     <div className={`popup ${isActive ? "active" : "inactive"}`}>
@@ -117,52 +179,33 @@ export function Popup() {
       <div className="section">
         <div className="control-row">
           <span className="label">PRE-AMP</span>
-          <button
-            title="Apply additional gain before the limiter"
-            className={`toggle ${state.preAmpEnabled ? "on" : "off"} ${!state.enabled ? "disabled" : ""}`}
-            onClick={() => state.enabled && updateState({ preAmpEnabled: !state.preAmpEnabled })}
-            disabled={!state.enabled}
+          <div
+            ref={preampBoxRef}
+            className={`preamp-box ${!state.enabled ? "disabled" : ""} ${state.preAmpGainDb !== 0 ? "highlight" : ""} ${editingPreamp ? "editing" : ""}`}
+            onClick={!editingPreamp ? startEditing : undefined}
+            title={editingPreamp ? "Enter to apply, Esc to cancel" : "Click to edit, scroll to adjust (±0.05 dB)"}
           >
-            {state.preAmpEnabled ? "ON" : "OFF"}
-          </button>
-        </div>
-
-        {state.preAmpEnabled && state.enabled && (
-          <div className="preamp-control">
-            <div className="slider-row">
-              <span className="slider-label">GAIN</span>
-              <div className="slider-wrapper">
-                <input
-                  type="range"
-                  className="slider"
-                  min={PREAMP_MIN}
-                  max={PREAMP_MAX}
-                  step={PREAMP_STEP}
-                  value={state.preAmpGainDb}
-                  onChange={(e) =>
-                    updateState({ preAmpGainDb: Number(e.target.value) }, false)
-                  }
-                />
-                <div className="slider-ticks">
-                  <span>−12</span>
-                  <span>0</span>
-                  <span>+12</span>
-                </div>
-              </div>
-              <span
-                className={`slider-value ${state.preAmpGainDb !== 0 ? "highlight" : ""}`}
-                onClick={() => updateState({ preAmpGainDb: 0 })}
-                title="Click to reset to 0 dB"
-              >
-                {state.preAmpGainDb > 0 ? "+" : ""}{state.preAmpGainDb.toFixed(1)} dB
+            {editingPreamp ? (
+              <input
+                ref={preampInputRef}
+                className="preamp-input"
+                type="text"
+                value={preampDraft}
+                onChange={(e) => setPreampDraft(e.target.value)}
+                onBlur={commitPreamp}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitPreamp();
+                  if (e.key === "Escape") cancelEditing();
+                }}
+              />
+            ) : (
+              <span className="preamp-display">
+                {state.preAmpGainDb > 0 ? "+" : ""}{state.preAmpGainDb.toFixed(2)}
               </span>
-            </div>
-            <div className="preamp-info">
-              <span className="info-label">LINEAR</span>
-              <span className="info-value">{preAmpLinear.toFixed(3)}x</span>
-            </div>
+            )}
+            <span className="preamp-unit">dB</span>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Divider */}
@@ -198,11 +241,11 @@ export function Popup() {
               value={`${(stats.limiterReductionDb ?? 0) > 0 ? "−" : ""}${(stats.limiterReductionDb ?? 0).toFixed(1)} dB`}
             />
           )}
-          {state.enabled && state.preAmpEnabled && (
+          {state.enabled && state.preAmpGainDb !== 0 && (
             <StatRow
               label="Pre-amp"
-              value={`${state.preAmpGainDb > 0 ? "+" : ""}${state.preAmpGainDb.toFixed(1)} dB`}
-              highlight={state.preAmpGainDb !== 0}
+              value={`${state.preAmpGainDb > 0 ? "+" : ""}${state.preAmpGainDb.toFixed(2)} dB`}
+              highlight
             />
           )}
           {stats?.audioError && <StatRow label="Audio error" value="SEE DETAILS" title={stats.audioError} />}
