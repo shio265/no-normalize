@@ -1,4 +1,4 @@
-// ISOLATED world: owns toggle state, Web Audio and the extension message relay.
+// toggle state, Web Audio and the extension message relay.
 import { AudioEngine } from "./audio";
 import type { AudioStats } from "./normalization";
 
@@ -26,6 +26,8 @@ function runtimeAvailable() {
   }
 }
 
+let videoObserver: MutationObserver | null = null;
+
 function cleanup() {
   if (stopped) return;
   stopped = true;
@@ -34,6 +36,10 @@ function cleanup() {
   document.removeEventListener("play", resumeAudio, true);
   document.removeEventListener("pointerdown", resumeAudio, true);
   document.removeEventListener("keydown", resumeAudio, true);
+  document.removeEventListener("loadeddata", onVideoSourceChange, true);
+  document.removeEventListener("canplay", onVideoSourceChange, true);
+  document.removeEventListener("playing", onVideoSourceChange, true);
+  if (videoObserver) { videoObserver.disconnect(); videoObserver = null; }
   for (const request of pending.values()) clearTimeout(request.timer);
   pending.clear();
   try { chrome.runtime.onMessage.removeListener(onRuntimeMessage); } catch { /* Context is already gone. */ }
@@ -149,10 +155,48 @@ try { chrome.runtime.onMessage.addListener(onRuntimeMessage); } catch (error) { 
 function resumeAudio() {
   if (ensureRuntime()) audio.resume();
 }
+
+// When a new video source loads, immediately request fresh stats from the MAIN
+// world so the correction gain is applied before the first audible frame.
+// Also re-apply the last-known correction instantly: YouTube reuses the same
+// <video> element, so the AudioEngine graph is still connected and the
+// previous gain is a better starting point than unity (silence gap).
+function onVideoSourceChange() {
+  if (!ensureRuntime()) return;
+  audio.resume();
+  // Re-apply cached stats right away so there is no audible gap.
+  if (initialized && state.enabled && playerStats) {
+    refreshAudio();
+  }
+  // Ask the MAIN world for updated stats (the new video may differ).
+  window.postMessage({ type: "NN_GET_PLAYER_STATS" }, "*");
+}
+
 if (!stopped) {
   document.addEventListener("play", resumeAudio, true);
   document.addEventListener("pointerdown", resumeAudio, true);
   document.addEventListener("keydown", resumeAudio, true);
+  // Fast detection of new video sources.
+  document.addEventListener("loadeddata", onVideoSourceChange, true);
+  document.addEventListener("canplay", onVideoSourceChange, true);
+  document.addEventListener("playing", onVideoSourceChange, true);
+
+  // At document_start the <video> element doesn't exist yet.  Watch the DOM
+  // so we can wire up the AudioEngine the instant the element appears,
+  // before its first audible frame plays.
+  if (typeof MutationObserver !== "undefined") {
+    videoObserver = new MutationObserver(() => {
+      if (stopped) return;
+      const video = document.querySelector<HTMLVideoElement>("video.html5-main-video") ?? document.querySelector("video");
+      if (video) {
+        videoObserver?.disconnect();
+        videoObserver = null;
+        onVideoSourceChange();
+      }
+    });
+    const root = document.documentElement ?? document;
+    videoObserver.observe(root, { childList: true, subtree: true });
+  }
 }
 
 async function initialize() {

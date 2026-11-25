@@ -10,6 +10,7 @@ interface AudioGraph {
   preAmpEnabled: boolean;
   reductionDb: number;
   peakDb: number | null;
+  firstApply: boolean;
 }
 
 // Keep each MediaElementSource alive: Web Audio only allows one per element,
@@ -73,6 +74,7 @@ export class AudioEngine {
           correction: 1, preAmpDb: 0,
           enabled: true, antiClipping, preAmpEnabled: false,
           reductionDb: 0, peakDb: null,
+          firstApply: true,
         };
         this.graphs.set(video, graph);
         this.allGraphs.add(graph);
@@ -130,8 +132,31 @@ export class AudioEngine {
       : 1;
 
     graph.limiter?.parameters.get("enabled")?.setValueAtTime(limiting ? 1 : 0, this.context.currentTime);
-    graph.preAmpGain.gain.setValueAtTime(preAmpLinear, this.context.currentTime);
-    graph.gain.gain.setValueAtTime(gain, this.context.currentTime);
+
+    // On the very first apply, ramp smoothly to avoid a sudden volume jump
+    // when the extension wires up after the video has already started playing.
+    if (graph.firstApply && gain !== 1) {
+      graph.firstApply = false;
+      const now = this.context.currentTime;
+      const rampEnd = now + 0.05; // 50 ms ramp
+      // linearRampToValueAtTime may be absent in test mocks.
+      if (typeof graph.preAmpGain.gain.linearRampToValueAtTime === "function") {
+        graph.preAmpGain.gain.setValueAtTime(graph.preAmpGain.gain.value, now);
+        graph.preAmpGain.gain.linearRampToValueAtTime(preAmpLinear, rampEnd);
+      } else {
+        graph.preAmpGain.gain.setValueAtTime(preAmpLinear, now);
+      }
+      if (typeof graph.gain.gain.linearRampToValueAtTime === "function") {
+        graph.gain.gain.setValueAtTime(graph.gain.gain.value, now);
+        graph.gain.gain.linearRampToValueAtTime(gain, rampEnd);
+      } else {
+        graph.gain.gain.setValueAtTime(gain, now);
+      }
+    } else {
+      graph.firstApply = false;
+      graph.preAmpGain.gain.setValueAtTime(preAmpLinear, this.context.currentTime);
+      graph.gain.gain.setValueAtTime(gain, this.context.currentTime);
+    }
   }
 
   private async loadLimiter(graph: AudioGraph) {

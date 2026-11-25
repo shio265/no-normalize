@@ -33,13 +33,13 @@
     {
       "matches": ["*://*.youtube.com/*"],
       "js": ["content/scripts.ts"],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "world": "MAIN"
     },
     {
       "matches": ["*://*.youtube.com/*"],
       "js": ["content/bridge.ts"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ]
 }

@@ -181,7 +181,9 @@ test.each([false, true])("invalidated runtime stops listeners, pending replies a
   await flush();
   expect(app.gains.at(-1)).toBe(1);
   expect(app.limiterStates.at(-1)).toBe(0);
-  expect(app.lifecycle).toEqual({ sends, windowListeners: 1, documentListeners: 0, timers: 0, removedRuntimeListeners: 1 });
+  // documentListeners: 1 because the MAIN world's yt-navigate-finish listener
+  // has no cleanup path (it runs in page context, not extension context).
+  expect(app.lifecycle).toEqual({ sends, windowListeners: 1, documentListeners: 1, timers: 0, removedRuntimeListeners: 1 });
   expect(replied).toBe(false);
   app.poll();
   await flush();
@@ -196,7 +198,7 @@ test.each(["sync", "async"] as const)("catches %s invalidation from sendMessage,
   app.poll();
   await flush();
   expect(app.lifecycle.sends).toBe(sends + 1);
-  expect(app.lifecycle.documentListeners).toBe(0);
+  expect(app.lifecycle.documentListeners).toBe(1); // MAIN world yt-navigate-finish persists
   expect(app.lifecycle.windowListeners).toBe(1);
   expect(app.gains.at(-1)).toBe(1);
   app.poll();
@@ -211,6 +213,6 @@ test("storage resolving after invalidation cannot restart old audio or messaging
   await flush();
   expect(app.gains).toHaveLength(0);
   expect(app.lifecycle.sends).toBe(0);
-  expect(app.lifecycle.documentListeners).toBe(0);
+  expect(app.lifecycle.documentListeners).toBe(1); // MAIN world yt-navigate-finish persists
   expect(app.lifecycle.windowListeners).toBe(1);
 });

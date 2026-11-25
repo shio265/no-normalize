@@ -1,4 +1,4 @@
-// Static, packaged AudioWorklet module. No page-supplied code is executed here.
+// static, packaged AudioWorklet module.
 class PeakLimiterProcessor extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [{ name: "enabled", defaultValue: 1, minValue: 0, maxValue: 1, automationRate: "k-rate" }];
